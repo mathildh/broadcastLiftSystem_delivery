@@ -9,9 +9,9 @@
  
 # Design
 Definitions:
-Active lift: Lift that communicates over the broadcast network
-Order queue: The orders that needs to be handled saved as a twodimensional array. Rows corresponds to floors and columns to different button types.
-Cost function: The function in the system that calculates the optimal lift that should take a specific order.
+- Active lift: Lift that communicates over the broadcast network
+- Order queue: The orders that needs to be handled saved as a twodimensional array. Rows corresponds to floors and columns to different button types.
+- Cost function: The function in the system that calculates the optimal lift that should take a specific order.
 
 Robustness of system:
 - Handles software crash and powerloss by going to fail-safe mode. 
