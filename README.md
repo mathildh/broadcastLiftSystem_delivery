@@ -8,9 +8,14 @@
 2. Ensures that no internal orders are lost and no external orders are lost when there are at least one lift in the network.
  
 # Design
+Definitions:
+Active lift: Lift that communicates over the broadcast network
+Order queue: The orders that needs to be handled saved as a twodimensional array. Rows corresponds to floors and columns to different button types.
+Cost function: The function in the system that calculates the optimal lift that should take a specific order.
+
 Robustness of system:
 - Handles software crash and powerloss by going to fail-safe mode. 
-- In case of software crash: The child process continously receives a copy of the lift's order queue and will take over and continue to operate the lift.
+- In case of software crash: The Process Pairs-scheme is implemented. The child process continously receives a copy of the lift's order queue and will take over and continue to operate the lift.
 - In case of powerloss: Backup of the internal orders in the system has been written to file and will be read during the next initialization.
 
 Module responsibilities:
@@ -25,5 +30,8 @@ Network protocol:
 - The network message struct is sent over UDP by using the included package json.
 
  Weaknesses:
- - Cannot take new orders during the con child process takes over.
- - Ordercontroller keeps track of the statuses of all lifts and detects that a lift has left the network. This functionality could be separated into a new module but this is a tradeoff between the size of the system, with a growing number of modules, and less module responsibility. 
+ - The code includes variables using the term order queue. These variables should rather have been named by using the term order array as these variables are two dimensional arrays with rows referring to floor and columns referring to different buttons, and not a queue in the sense of popping and pushing orders to the data structure. This revelation was unfortuneately made at a very late point of time, hence, we decided to keep the slightly misleading names in the code. Ensuring transferability is also the cause of using the term order queue in this readme-file.
+ - The system does not detect button presses at a specific lift during a child process take-over at this lift.
+ - In case of a dead lift; all lifts that are still connected to the network will take the orders of this dead lift themselves. This solution result in redundant order handling. Could possibly be improved by letting a lift iterate through the order queues of every active lift before updating its own order queue.
+ - Ordercontroller keeps track of the statuses of all lifts and detects that a lift has left the network. It's intuitive that it should rather be the network module that detects that a lift has left the network. This detection could have notified the orderController. But, the detection of an active lift needs access to the timestamp of the status messages and the orderController needs access to the status of the all lifts in order to run the cost function. The orderController can't access the network module as the network module needs to access the orderController (avoiding a cyclic import). Hence, the statuses cannot be saved in the network module with the current dependency between the network module and the orderController module.
+ Instead of changing the interface between these modules, there is an alternative solution; the functionality related to the saving of the statuses of all lifts in the network could be separated into a new "status" module. This decision involves a tradeoff between the size of the system, with a growing number of modules, and less module responsibility. 
