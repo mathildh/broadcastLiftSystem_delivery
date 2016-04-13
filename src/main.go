@@ -1,7 +1,3 @@
-/*
-INTRO
-*/
-
 package main
 
 import (
