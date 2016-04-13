@@ -9,15 +9,14 @@ package liftDriver
 import "C"
 
 import(
-	//"fmt"
 	"time"
-	. "../types"
-	//. "../orderController"
+	. "../typesAndConstants"
 )
 
-const BUTTON_RATE = time.Millisecond * 100
-const FLOOR_RATE = time.Millisecond * 100
-
+/*
+Variables needed in implementation of the two basic lift algorithms:
+If the lift should stop at a current floor and in the calculation of the next motor direction thereafter.
+*/
 var lastSetDirection MotorDirection
 var lastFloorOfLift int
 
@@ -54,7 +53,6 @@ func LiftDriver_SetButtonLamp(lamp Lamp) {
 	}
 }
 
-
 func LiftDriver_SetFloorIndicator(floor int) {
 	C.elev_set_floor_indicator(C.int(floor))
 }
@@ -71,37 +69,35 @@ func LiftDriver_GetFloor() int {
 	return int(C.elev_get_floor_sensor_signal())
 }
 
-
-func LiftDriver_DetectButtonEvent(delegateOrderChannel chan Button) {
-	var previous [TOTAL_FLOORS][TOTAL_BUTTON_TYPES]bool
+func LiftDriver_DetectButtonPress(delegateOrderChannel chan Button) {
+	var previousButtonValues [TOTAL_FLOORS][TOTAL_BUTTON_TYPES]bool
 	for {
 		time.Sleep(BUTTON_RATE)
+
 		for floor := 0; floor < TOTAL_FLOORS; floor++ {
 			for buttonType := ButtonType_UP; buttonType <= ButtonType_INTERNAL; buttonType++ {
 				var ifButtonPressed bool = LiftDriver_GetButtonSignal(buttonType, floor)
-
-				if ifButtonPressed && !previous[floor][buttonType] {
+				if ifButtonPressed && !previousButtonValues[floor][buttonType] {
 					buttonOrder := Button{Type: buttonType, Floor: floor}
 					delegateOrderChannel <- buttonOrder
-					previous[floor][buttonType] = true
-				}else if ifButtonPressed != previous[floor][buttonType] {
-					previous[floor][buttonType] = false
+					previousButtonValues[floor][buttonType] = true
+				}else if ifButtonPressed != previousButtonValues[floor][buttonType] {
+					previousButtonValues[floor][buttonType] = false
 				}
 			}
 		}
 	}
 }
 
-func LiftDriver_DetectFloorEvent(floorChannel chan int) {
+func LiftDriver_DetectNewFloor(arrivalFloorChannel chan int) {
 	var previousFloor int = -1
 	for {
 		time.Sleep(FLOOR_RATE)
 		var currentFloor int = LiftDriver_GetFloor()
 		if currentFloor != previousFloor && currentFloor != -1 {
 			lastFloorOfLift = currentFloor
-			floorChannel <- currentFloor
+			arrivalFloorChannel <- currentFloor
 			previousFloor = currentFloor
 		}
-
 	}
 }

@@ -6,12 +6,12 @@ import(
 	"fmt"
 	"time"
 	. "../orderController"
-	. "../types"
+	. "../typesAndConstants"
 )
 
 func BackupInternalOrders_UpdateBackup(backupPath string){
 	for{
-		time.Sleep(2*time.Second)
+		time.Sleep(BACKUP_RATE)
 
 		allOrders := OrderController_GetThisLiftsOrderQueue()
 		internalOrders := make([]bool, 0)
@@ -22,6 +22,5 @@ func BackupInternalOrders_UpdateBackup(backupPath string){
 		if writeError := ioutil.WriteFile(backupPath, byteMessage, 0644); writeError!= nil{
 			fmt.Println(writeError)
 		}
-		//backupFile.Write(byteMessage)
 	}
 }

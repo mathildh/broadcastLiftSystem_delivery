@@ -7,6 +7,13 @@ import (
 const TOTAL_FLOORS = 4
 const TOTAL_BUTTON_TYPES = 3
 
+const BUTTON_RATE = time.Millisecond * 100
+const FLOOR_RATE = time.Millisecond * 100
+const BACKUP_RATE = time.Second * 2
+const DETECT_DEAD_LIFT_RATE = time.Millisecond*100
+const SEND_STATUS_RATE = time.Millisecond*200
+const PRIMAL_MESSAGE_RATE = time.Millisecond*500
+
 type MotorDirection int
 type ButtonType int
 
@@ -26,8 +33,8 @@ type NetworkMessageType int
 
 const (
 	NetworkMessageType_LiftStatus = iota
-	NetworkMessageType_NewOrder   //ops, vi sender egentlig noe to ganger til samme heis...?
-	NetworkMessageType_FinishedOrder //sende over buttonOrder
+	NetworkMessageType_NewOrder   
+	NetworkMessageType_FinishedOrder 
 )
 
 type NetworkMessage struct {

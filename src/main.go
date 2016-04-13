@@ -1,8 +1,12 @@
+/*
+INTRO
+*/
+
 package main
 
 import (
 	. "./liftDriver"
-	. "./types"
+	. "./typesAndConstants"
 	. "./network"
 	. "./orderController"
 	. "./backupInternalOrders"
@@ -17,44 +21,55 @@ import (
 )
 
 
-
 func main() {
 	ifPowerloss := false
-	
+	/*
+	Procedure catching ^C in order to simulate software crash.
+	*/
 	c := make(chan os.Signal, 1)
     signal.Notify(c, syscall.SIGINT)
     go func() {
         <-c
-        fmt.Println("software crash procedure")
         os.Remove("backupInternalOrders/backup")
         LiftDriver_SetMotorDirection(MotorDirection_STOP)
     	os.Exit(1)    
     }()
 
+    /*
+	Implementing process pairs: 
+	Resolving if process is primal or child. 
+	Child receives copy of the lifts order queue from primal.
+
+    Defer func:
+    Procedure ensuring a fail-safe mode of the system.
+    Backup of internal orders are only saved in case of powerloss, as this is the only case where the
+    whole program (child and primal) is killed. This is to ensure that the dead lift will not be 
+    taken into account by the other lifts.
+    Else, the take over by the child process ensures completion of orders in the system.
+    */
     defer func(){
     	LiftDriver_SetMotorDirection(MotorDirection_STOP)
     	if ifPowerloss{
     		exec.Command("pkill", "main").Run()
     	}else{
-    		fmt.Println("software crash")
     		os.Remove("backupInternalOrders/backup")
     		os.Exit(1)
     	}
     }()
 
+    existingPrimal := true
     processPairPort := "6666"
 	listenAddress, _ := net.ResolveUDPAddr("udp", "localhost:" + processPairPort)
 	listenConnection, _ := net.ListenUDP("udp", listenAddress)
-	data := make([]byte, 1024)
-	existingPrimal := true
 
 	var copyOrderQueue [TOTAL_FLOORS][TOTAL_BUTTON_TYPES]bool
 
+	data := make([]byte, 1024)
 	for existingPrimal{
 		readingConnectionChannel := make(chan [TOTAL_FLOORS][TOTAL_BUTTON_TYPES]bool)
 		timeoutChannel := make(chan bool)
 		go func(){
-			time.Sleep(1000*time.Millisecond)
+			time.Sleep(time.Second)
 			timeoutChannel <- true
 		}()
 		go func(){
@@ -72,39 +87,35 @@ func main() {
 		select{
 		case <- timeoutChannel:
 			existingPrimal = false
-			fmt.Println("Timeout!!")
 			listenConnection.Close()
 		case orderQueue :=<- readingConnectionChannel:
 			copyOrderQueue = orderQueue
-			fmt.Println("Primal exists: ", copyOrderQueue)
 		}
-
 	}
 
+	
+	go Network_SendPrimalMessage(processPairPort)
+	LiftDriver_Initialize()
 
 	cmd := exec.Command("gnome-terminal", "-e", "./main")
 	cmd.Output()
 
-	//BLITT PRIMAL!!!!
-	go Network_SendPrimalMessage(processPairPort)
-	LiftDriver_Initialize()
-
+	/*
+	A backup file only exists if the lift experienced a power loss. Hence, there will be no orders 
+	in the copy of the order queue from the process pair solution and only internal orders from
+	backup file will be completed.
+	*/
 	var backupFile *os.File
 	backupPath := "backupInternalOrders/backup"
 	var errorBackupFile error
-	if _, existError := os.Stat("backupInternalOrders/backup"); os.IsNotExist(existError) {
-		//Backup eksisterer ikke = first time or softwarecrash
-		fmt.Println("oppretter backup")
 
-		//Oppretter backupfil
+	if _, existError := os.Stat("backupInternalOrders/backup"); os.IsNotExist(existError) {
 		backupFile, errorBackupFile = os.Create("backupInternalOrders/backup")
-		//Sjekk om var child, om copyOrderQueue var fylt og oppdaterer deretter
 		if errorBackupFile == nil{
 			for floor:= 0; floor < TOTAL_FLOORS; floor++{	
 				for buttonType := ButtonType_UP; buttonType <= ButtonType_INTERNAL; buttonType++ {
 					if (copyOrderQueue[floor][buttonType] == true){
 						buttonOrder := Button{Type: buttonType, Floor: floor}
-						fmt.Println("Reading child's saved orders")
 						OrderController_UpdateThisLiftsOrderQueue(buttonOrder,true)
 						lamp := Lamp{ButtonOrder: buttonOrder, IfOn: true}
 						LiftDriver_SetButtonLamp(lamp)
@@ -113,18 +124,13 @@ func main() {
 			}		
 		}
 	}else{
-		//= powerloss
-		fmt.Println("Henter backup")
-		//Henter gamle interne ordre, oppdaterer orderQueue:
 		backupFile, errorBackupFile = os.Open("backupInternalOrders/backup")
 		defer backupFile.Close()
 		if errorBackupFile == nil{
-			bytesOfFile := make([]byte, 1024)
-	    	numberOfBytes, _:= backupFile.Read(bytesOfFile)
-
-	    	var backupInternalOrders [TOTAL_FLOORS]bool
-			jsonError := json.Unmarshal(bytesOfFile[:numberOfBytes], &backupInternalOrders)
-			fmt.Println("Fetched backupInternalOrders: ", backupInternalOrders)
+			bytesFromBackupFile := make([]byte, 1024)
+			var backupInternalOrders [TOTAL_FLOORS]bool
+	    	numberOfBytes, _:= backupFile.Read(bytesFromBackupFile)
+			jsonError := json.Unmarshal(bytesFromBackupFile[:numberOfBytes], &backupInternalOrders)
 			if jsonError == nil{
 				for floor:=0; floor<TOTAL_FLOORS; floor++{
 					if backupInternalOrders[floor] == true{
@@ -142,7 +148,7 @@ func main() {
 	receiveMessageChannel := make(chan NetworkMessage)
 	sendMessageChannel := make(chan NetworkMessage)
 	setLampChannel := make(chan Lamp)
-	floorChannel := make(chan int,1)
+	arrivalFloorChannel := make(chan int,1)
 	deadLiftIPChannel := make(chan string)
 	doorOpenChannel := make(chan bool, 1)
 	doorCloseChannel := make(chan bool, 1)
@@ -154,19 +160,23 @@ func main() {
 	powerlossTimer := time.NewTimer(4*time.Second)
 	powerlossTimer.Stop()
 
-	ifNetworkInitSuccess := Network_Initialize(broadcastPort, messageSize, sendMessageChannel, receiveMessageChannel)
-	if !ifNetworkInitSuccess{
-		fmt.Println("Network initialization did not succeed.")
-		os.Exit(1)
-	}else{
-		fmt.Println("Network initialization success")
-	}
+	Network_Initialize(broadcastPort, messageSize, sendMessageChannel, receiveMessageChannel)
+	fmt.Println("Network initialized sucessfully")
+	/*
+	Threads that detects events that should result in hardware changes are catched and handled 
+	in the main thread.
 
+	The threads handling dead lifts in the network, message sending and receiving, detection
+	of button presses and delegating orders run in "the background" without interfering the main thread.
+
+	A timer is set each time the lifts starts moving in order to detect powerloss.
+	This will happen if the lift does not arrive at the next floor within a time limit.
+	*/
 	go BackupInternalOrders_UpdateBackup(backupPath)
 	go Network_HandleNetworkMessages(receiveMessageChannel, sendMessageChannel, setLampChannel)
 	go Network_BroadcastStatus(sendMessageChannel)
-	go LiftDriver_DetectButtonEvent(delegateOrderChannel)
-	go LiftDriver_DetectFloorEvent(floorChannel)
+	go LiftDriver_DetectButtonPress(delegateOrderChannel)
+	go LiftDriver_DetectNewFloor(arrivalFloorChannel)
 	go OrderController_DelegateOrders(delegateOrderChannel, sendMessageChannel, setLampChannel)
 	go OrderController_DetectDeadLifts(deadLiftIPChannel)
 	go OrderController_TakeDeadLiftOrders(deadLiftIPChannel)
@@ -177,14 +187,12 @@ func main() {
 		select {
 		case <- detectIdleChannel:
 			powerlossTimer.Stop()
-			currentFloor := LiftDriver_GetLastFloorOfLift()
-			nextDirection := OrderController_GetNextDirection(MotorDirection_STOP, currentFloor, OrderController_GetThisLiftsOrderQueue())
+			nextDirection := OrderController_GetNextDirection(MotorDirection_STOP, LiftDriver_GetLastFloorOfLift(), OrderController_GetThisLiftsOrderQueue())
 			if nextDirection != MotorDirection_STOP{
 				LiftDriver_SetMotorDirection(nextDirection)
 				powerlossTimer.Reset(4*time.Second)
-				fmt.Println("RESET timer in idle")
 			}else{
-				if OrderController_IfLiftShouldStop(currentFloor, MotorDirection_STOP, OrderController_GetThisLiftsOrderQueue()){
+				if OrderController_IfLiftShouldStop(LiftDriver_GetLastFloorOfLift(), MotorDirection_STOP, OrderController_GetThisLiftsOrderQueue()){
 					doorOpenChannel <- true
 				}else{
 					go func(){
@@ -193,20 +201,16 @@ func main() {
 				 	}()
 				}
 			}
-		case arrivalFloor := <- floorChannel:
+		case arrivalFloor := <- arrivalFloorChannel:
 			powerlossTimer.Stop()
-			fmt.Println("floorChannel emptied, arrived at floor")
 			LiftDriver_SetFloorIndicator(arrivalFloor)
-			direction := LiftDriver_GetLastSetDirection()
-			if OrderController_IfLiftShouldStop(arrivalFloor, direction, OrderController_GetThisLiftsOrderQueue()){
+			if OrderController_IfLiftShouldStop(arrivalFloor, LiftDriver_GetLastSetDirection(), OrderController_GetThisLiftsOrderQueue()){
 				LiftDriver_SetMotorDirection(MotorDirection_STOP)
 				doorOpenChannel <- true
 			}else{
 				powerlossTimer.Reset(4*time.Second)
-				fmt.Println("RESET timer after arrival")
 			}
 		case  <- doorOpenChannel:
-			fmt.Println("Opening door...")
 			LiftDriver_SetDoorLamp(1)
 			currentFloor := LiftDriver_GetLastFloorOfLift()
 			for buttonType := ButtonType_UP; buttonType <= ButtonType_INTERNAL; buttonType++ {
@@ -233,7 +237,6 @@ func main() {
 				}
 			}else{
 				powerlossTimer.Reset(4*time.Second)
-				fmt.Println("RESET timer after Door close")
 				LiftDriver_SetDoorLamp(0)
 				LiftDriver_SetMotorDirection(nextDirection)
 			}
@@ -242,7 +245,6 @@ func main() {
 		case <- powerlossTimer.C:
 			fmt.Println("Powerloss!!")
 			ifPowerloss = true
-			break
 		}
 	}
 }
