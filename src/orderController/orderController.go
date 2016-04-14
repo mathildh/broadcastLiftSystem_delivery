@@ -218,6 +218,7 @@ func OrderController_TakeDeadLiftOrders(deadLiftIPChannel chan string){
 			for buttonType := ButtonType_UP; buttonType < ButtonType_INTERNAL; buttonType++ {
 				if deadLiftOrders[floor][buttonType] == true{
 					buttonOrder := Button{Type: buttonType, Floor: floor}
+					fmt.Println("Order taken: ", buttonOrder)
 					OrderController_UpdateThisLiftsOrderQueue(buttonOrder,true)
 				}
 			}

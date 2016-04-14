@@ -19,6 +19,7 @@ import (
 
 func main() {
 	ifPowerloss := false
+	ifNetworkInInitialization := false
 	/*
 	Procedure catching ^C in order to simulate software crash.
 	*/
@@ -45,16 +46,17 @@ func main() {
     */
     defer func(){
     	LiftDriver_SetMotorDirection(MotorDirection_STOP)
-    	if ifPowerloss{
+    	if ifPowerloss || !ifNetworkInInitialization{
     		exec.Command("pkill", "main").Run()
     	}else{
+    		fmt.Println("Software crash")
     		os.Remove("backupInternalOrders/backup")
     		os.Exit(1)
     	}
     }()
 
     existingPrimal := true
-    processPairPort := "6666"
+    processPairPort := "6656"
 	listenAddress, _ := net.ResolveUDPAddr("udp", "localhost:" + processPairPort)
 	listenConnection, _ := net.ListenUDP("udp", listenAddress)
 
@@ -65,7 +67,7 @@ func main() {
 		readingConnectionChannel := make(chan [TOTAL_FLOORS][TOTAL_BUTTON_TYPES]bool)
 		timeoutChannel := make(chan bool)
 		go func(){
-			time.Sleep(time.Second)
+			time.Sleep(DETECT_EXISTING_PRIMAL_RATE)
 			timeoutChannel <- true
 		}()
 		go func(){
@@ -86,10 +88,11 @@ func main() {
 			listenConnection.Close()
 		case orderQueue :=<- readingConnectionChannel:
 			copyOrderQueue = orderQueue
+			fmt.Println("Child running")
 		}
 	}
 
-	
+	fmt.Println("Becoming Primal")
 	go Network_SendPrimalMessage(processPairPort)
 	LiftDriver_Initialize()
 
@@ -139,25 +142,25 @@ func main() {
 			}
 		}
 	}
-
+	
 	detectIdleChannel := make(chan bool, 1)
 	receiveMessageChannel := make(chan NetworkMessage)
 	sendMessageChannel := make(chan NetworkMessage)
-	setLampChannel := make(chan Lamp)
+	setLampChannel := make(chan Lamp,10)
 	arrivalFloorChannel := make(chan int,1)
 	deadLiftIPChannel := make(chan string)
 	doorOpenChannel := make(chan bool, 1)
 	doorCloseChannel := make(chan bool, 1)
 	delegateOrderChannel := make(chan Button)
 
-	broadcastPort := "30002"
+	broadcastPort := "30021"
 	messageSize := 1024
 
-	powerlossTimer := time.NewTimer(4*time.Second)
+	powerlossTimer := time.NewTimer(DETECT_POWERLOSS_RATE)
 	powerlossTimer.Stop()
-
-	Network_Initialize(broadcastPort, messageSize, sendMessageChannel, receiveMessageChannel)
-	fmt.Println("Network initialized sucessfully")
+	
+	ifNetworkInInitialization = Network_Initialize(broadcastPort, messageSize, sendMessageChannel, receiveMessageChannel)
+	
 	/*
 	Threads that detects events that should result in hardware changes are catched and handled 
 	in the main thread.
@@ -179,20 +182,20 @@ func main() {
 
 	detectIdleChannel <- true
 
-	for (!ifPowerloss){
+	for (!ifPowerloss  && ifNetworkInInitialization){
 		select {
 		case <- detectIdleChannel:
 			powerlossTimer.Stop()
 			nextDirection := OrderController_GetNextDirection(MotorDirection_STOP, LiftDriver_GetLastFloorOfLift(), OrderController_GetThisLiftsOrderQueue())
 			if nextDirection != MotorDirection_STOP{
 				LiftDriver_SetMotorDirection(nextDirection)
-				powerlossTimer.Reset(4*time.Second)
+				powerlossTimer.Reset(DETECT_POWERLOSS_RATE)
 			}else{
 				if OrderController_IfLiftShouldStop(LiftDriver_GetLastFloorOfLift(), MotorDirection_STOP, OrderController_GetThisLiftsOrderQueue()){
 					doorOpenChannel <- true
 				}else{
 					go func(){
-				 		time.Sleep(time.Millisecond*100)
+				 		time.Sleep(IDLE_RATE)
 				 		detectIdleChannel <- true
 				 	}()
 				}
@@ -204,7 +207,7 @@ func main() {
 				LiftDriver_SetMotorDirection(MotorDirection_STOP)
 				doorOpenChannel <- true
 			}else{
-				powerlossTimer.Reset(4*time.Second)
+				powerlossTimer.Reset(DETECT_POWERLOSS_RATE)
 			}
 		case  <- doorOpenChannel:
 			LiftDriver_SetDoorLamp(1)
@@ -212,13 +215,14 @@ func main() {
 			for buttonType := ButtonType_UP; buttonType <= ButtonType_INTERNAL; buttonType++ {
 		 		button := Button{Type: buttonType, Floor: currentFloor}
 		 		OrderController_UpdateThisLiftsOrderQueue(button, false)
-
+		 		lamp := Lamp{ButtonOrder: button, IfOn: false}
+		 		setLampChannel <- lamp
 		 		finishedOrder := LiftOrder{ButtonOrder: Button{Type: buttonType, Floor: currentFloor}}
 				message := NetworkMessage{MessageType: NetworkMessageType_FinishedOrder, Order: finishedOrder}
 				sendMessageChannel <- message
 		 	}
 		 	go func(){
-		 		time.Sleep(time.Second*3)
+		 		time.Sleep(DOOR_OPEN_RATE)
 		 		doorCloseChannel <- true
 		 	}()
 		case <-doorCloseChannel:
@@ -232,7 +236,7 @@ func main() {
 					detectIdleChannel <- true
 				}
 			}else{
-				powerlossTimer.Reset(4*time.Second)
+				powerlossTimer.Reset(DETECT_POWERLOSS_RATE)
 				LiftDriver_SetDoorLamp(0)
 				LiftDriver_SetMotorDirection(nextDirection)
 			}

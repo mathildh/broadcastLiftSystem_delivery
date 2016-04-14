@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"time"
 	"strings"
-	"os"
 	. "../typesAndConstants"
 	. "../liftDriver"
 	. "../orderController"
@@ -23,25 +22,32 @@ Network uses UDP to broadcast all messages needed in the system.
 Initialize starts two go threads that enables the system to receive and send broadcast messages 
 continously. 
 */
-func Network_Initialize(broadcastPort string, messageSize int, sendMessageChannel, receiveMessageChannel chan NetworkMessage) {
+
+func Network_Initialize(broadcastPort string, messageSize int, sendMessageChannel, receiveMessageChannel chan NetworkMessage) bool{
 	callerAddress := &net.UDPAddr{
 		Port: 20011,
 		IP:   net.IPv4bcast,
 	}
-	tempConnection, _ := net.DialUDP("udp4", nil, callerAddress)
+	tempConnection, dialError:= net.DialUDP("udp4", nil, callerAddress)
+	if dialError != nil{
+		return false
+	}
+	Network_CheckIfError(dialError, "Error dialing UDP in Initialize")
+	
 	tempAddress := tempConnection.LocalAddr()
 	liftIP = strings.Split(tempAddress.String(), ":")[0]
 	tempConnection.Close()
-
+	
 	address, resolvingError := net.ResolveUDPAddr("udp4", "255.255.255.255:" + broadcastPort)
 	broadcastAddress = address
-	Network_CheckIfError(resolvingError)
+	Network_CheckIfError(resolvingError, "Error resolving UDP address in Initialize")
 
 	broadcastConnection, listenError := net.ListenUDP("udp", broadcastAddress)
-	Network_CheckIfError(listenError)
+	Network_CheckIfError(listenError, "Error listening to UDP in Initialize")
 
 	go Network_UDPReceiveMessage(broadcastConnection, messageSize, receiveMessageChannel, sendMessageChannel)
 	go Network_UDPSendMessage(broadcastConnection, sendMessageChannel)
+	return true
 }
 
 func Network_UDPSendMessage(broadcastConnection *net.UDPConn, sendMessageChannel chan NetworkMessage) {
