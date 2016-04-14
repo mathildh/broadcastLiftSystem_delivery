@@ -16,7 +16,7 @@ Definitions:
 Robustness of system:
 - Handles software crash and powerloss by going to fail-safe mode. 
 - In case of software crash: The Process Pairs-scheme is implemented. The child process continously receives a copy of the lift's order queue and will take over and continue to operate the lift.
-- In case of powerloss: Backup of the internal orders in the system has been written to file and will be read during the next initialization.
+- In case of powerloss or no network during initialization: Backup of the internal orders in the system has been written to file and will be read during the next initialization.
 
 Module responsibilities:
 - Module liftDriver: Includes functions that reads and writes to hardware. Furthermore, it detects button presses and arrival of lift at a new floor.
