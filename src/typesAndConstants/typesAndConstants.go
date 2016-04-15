@@ -13,10 +13,15 @@ const BACKUP_RATE = time.Second * 2
 const DETECT_DEAD_LIFT_RATE = time.Millisecond*100
 const SEND_STATUS_RATE = time.Millisecond*200
 const PRIMAL_MESSAGE_RATE = time.Millisecond*500
-const DETECT_POWERLOSS_RATE = time.Second * 4
-const DETECT_EXISTING_PRIMAL_RATE = time.Second
-const DOOR_OPEN_RATE = time.Second * 3
 const IDLE_RATE = time.Millisecond*100
+
+const DOOR_OPEN_TIME = time.Second * 3
+
+const POWERLOSS_LIMIT = time.Second * 4
+const EXISTING_PRIMAL_LIMIT = time.Second
+const DEAD_LIFT_LIMIT = time.Second * 3
+
+
 
 type MotorDirection int
 type ButtonType int

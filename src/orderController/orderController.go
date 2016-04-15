@@ -195,7 +195,7 @@ func OrderController_DetectDeadLifts(deadLiftIPChannel chan string){
 	for{
 		time.Sleep(DETECT_DEAD_LIFT_RATE)
 		for liftIP, liftStatus := range previousStatusOfAllLifts{
-			if activeLifts[liftIP] && (time.Now().Sub(liftStatus.Timestamp) > 3*time.Second){
+			if activeLifts[liftIP] && (time.Now().Sub(liftStatus.Timestamp) > DEAD_LIFT_LIMIT){
 				activeLifts[liftIP] = false
 				deadLiftIPChannel <- liftIP
 				fmt.Println("Dead lift detected: ", liftIP)

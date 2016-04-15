@@ -93,7 +93,10 @@ func Network_HandleNetworkMessages(receiveMessageChannel chan NetworkMessage, se
 		}
 	}
 }
-
+/*
+The variables needed for calulation of the cost function at each lift are gathered in a lift status
+and broadcasted. 
+*/
 func Network_BroadcastStatus(sendMessageChannel chan NetworkMessage){
 	for{
 		time.Sleep(SEND_STATUS_RATE)

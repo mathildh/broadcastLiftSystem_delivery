@@ -39,14 +39,15 @@ func main() {
 
     Defer func:
     Procedure ensuring a fail-safe mode of the system.
-    Backup of internal orders are only saved in case of powerloss, as this is the only case where the
-    whole program (child and primal) is killed. This is to ensure that the dead lift will not be 
-    taken into account by the other lifts.
+    Backup of internal orders are  saved in case of powerloss, and the whole program (child and primal) is killed. 
+    This is to ensure that the dead lift will not be taken into account by the other lifts. 
+    The whole program is also killed when there is no network connection during initialization. 
     Else, the take over by the child process ensures completion of orders in the system.
     */
     defer func(){
     	LiftDriver_SetMotorDirection(MotorDirection_STOP)
     	if ifPowerloss || !ifNetworkInInitialization{
+    		time.Sleep(time.Second)
     		exec.Command("pkill", "main").Run()
     	}else{
     		fmt.Println("Software crash")
@@ -67,7 +68,7 @@ func main() {
 		readingConnectionChannel := make(chan [TOTAL_FLOORS][TOTAL_BUTTON_TYPES]bool)
 		timeoutChannel := make(chan bool)
 		go func(){
-			time.Sleep(DETECT_EXISTING_PRIMAL_RATE)
+			time.Sleep(EXISTING_PRIMAL_LIMIT)
 			timeoutChannel <- true
 		}()
 		go func(){
@@ -100,9 +101,9 @@ func main() {
 	cmd.Output()
 
 	/*
-	A backup file only exists if the lift experienced a power loss. Hence, there will be no orders 
-	in the copy of the order queue from the process pair solution and only internal orders from
-	backup file will be completed.
+	A backup file only exists if the lift experienced a power loss or no network connection in the initialization. 
+	Hence, there will be no orders in the copy of the order queue from the process pair solution and only internal 
+	orders from backup file will be completed.
 	*/
 	var backupFile *os.File
 	backupPath := "backupInternalOrders/backup"
@@ -128,9 +129,10 @@ func main() {
 		if errorBackupFile == nil{
 			bytesFromBackupFile := make([]byte, 1024)
 			var backupInternalOrders [TOTAL_FLOORS]bool
-	    	numberOfBytes, _:= backupFile.Read(bytesFromBackupFile)
+			numberOfBytes, _:= backupFile.Read(bytesFromBackupFile)
 			jsonError := json.Unmarshal(bytesFromBackupFile[:numberOfBytes], &backupInternalOrders)
 			if jsonError == nil{
+				fmt.Println("Reading from backup")
 				for floor:=0; floor<TOTAL_FLOORS; floor++{
 					if backupInternalOrders[floor] == true{
 						buttonOrder := Button{Type: ButtonType_INTERNAL, Floor: floor}
@@ -156,10 +158,11 @@ func main() {
 	broadcastPort := "30021"
 	messageSize := 1024
 
-	powerlossTimer := time.NewTimer(DETECT_POWERLOSS_RATE)
+	powerlossTimer := time.NewTimer(POWERLOSS_LIMIT)
 	powerlossTimer.Stop()
 	
 	ifNetworkInInitialization = Network_Initialize(broadcastPort, messageSize, sendMessageChannel, receiveMessageChannel)
+	fmt.Println("Network? ",ifNetworkInInitialization)
 	
 	/*
 	Threads that detects events that should result in hardware changes are catched and handled 
@@ -189,7 +192,7 @@ func main() {
 			nextDirection := OrderController_GetNextDirection(MotorDirection_STOP, LiftDriver_GetLastFloorOfLift(), OrderController_GetThisLiftsOrderQueue())
 			if nextDirection != MotorDirection_STOP{
 				LiftDriver_SetMotorDirection(nextDirection)
-				powerlossTimer.Reset(DETECT_POWERLOSS_RATE)
+				powerlossTimer.Reset(POWERLOSS_LIMIT)
 			}else{
 				if OrderController_IfLiftShouldStop(LiftDriver_GetLastFloorOfLift(), MotorDirection_STOP, OrderController_GetThisLiftsOrderQueue()){
 					doorOpenChannel <- true
@@ -207,7 +210,7 @@ func main() {
 				LiftDriver_SetMotorDirection(MotorDirection_STOP)
 				doorOpenChannel <- true
 			}else{
-				powerlossTimer.Reset(DETECT_POWERLOSS_RATE)
+				powerlossTimer.Reset(POWERLOSS_LIMIT)
 			}
 		case  <- doorOpenChannel:
 			LiftDriver_SetDoorLamp(1)
@@ -222,7 +225,7 @@ func main() {
 				sendMessageChannel <- message
 		 	}
 		 	go func(){
-		 		time.Sleep(DOOR_OPEN_RATE)
+		 		time.Sleep(DOOR_OPEN_TIME)
 		 		doorCloseChannel <- true
 		 	}()
 		case <-doorCloseChannel:
@@ -236,7 +239,7 @@ func main() {
 					detectIdleChannel <- true
 				}
 			}else{
-				powerlossTimer.Reset(DETECT_POWERLOSS_RATE)
+				powerlossTimer.Reset(POWERLOSS_LIMIT)
 				LiftDriver_SetDoorLamp(0)
 				LiftDriver_SetMotorDirection(nextDirection)
 			}

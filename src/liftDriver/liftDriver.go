@@ -30,7 +30,7 @@ func LiftDriver_GetLastSetDirection() MotorDirection{
 }
 
 func LiftDriver_Initialize() {
-	fmt.Println("Initializing")
+	fmt.Println("Initializing liftDriver")
 	C.elev_init( C.elev_type(C.ET_Comedi))
 	lastFloorOfLift = LiftDriver_GetFloor()
 	lastSetDirection = MotorDirection_STOP
